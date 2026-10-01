@@ -1,0 +1,15 @@
+# Local configuration and generated data
+settings.json
+.blender-cache/
+converted/
+*.glb
+*.fbx
+*.log
+
+# Design review artifacts and local tooling state
+.impeccable/
+.vscode/
+
+# Windows noise
+Thumbs.db
+Desktop.ini
