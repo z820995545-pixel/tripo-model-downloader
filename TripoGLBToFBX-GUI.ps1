@@ -69,13 +69,14 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 
           <Border Height="1" Background="#DCE4EF"/>
           <Grid Height="108">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="91"/><ColumnDefinition Width="*"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="91"/><ColumnDefinition Width="*"/><ColumnDefinition Width="88"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
             <Image x:Name="BlenderIcon" Width="68" Height="68" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Center"/>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
               <TextBlock x:Name="BlenderTitle" Text="正在检测 Blender…" FontSize="21" FontWeight="SemiBold" Foreground="#1A2437"/>
               <TextBlock x:Name="BlenderDetail" Text="可用于模型转换" FontSize="19" Foreground="#66758C" Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
-            <Image x:Name="BlenderStatusIcon" Grid.Column="2" Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Visibility="Collapsed"/>
+            <Button x:Name="BrowseBlenderButton" Style="{StaticResource SecondaryButton}" Grid.Column="2" Content="选择" Width="82" Height="38" FontSize="16" Foreground="#172338" Background="#F3F6FB" BorderBrush="#CAD6EA" BorderThickness="1.3" ToolTip="选择本地 blender.exe"/>
+            <Image x:Name="BlenderStatusIcon" Grid.Column="3" Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Visibility="Collapsed" ToolTip="Blender 检测状态"/>
           </Grid>
 
           <Button x:Name="RunButton" Style="{StaticResource PrimaryButton}" Height="74" FontSize="22" FontWeight="SemiBold" Foreground="White" BorderBrush="#2F78F2" BorderThickness="1" Cursor="Hand">
@@ -103,7 +104,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
-$names = @('TitleBar','MinButton','MaxButton','CloseButton','CubeIcon','LinkIcon','FolderIcon','BlenderIcon','DownloadIcon','UrlBox','UrlPlaceholder','PasteButton','FolderBox','BrowseButton','BlenderTitle','BlenderDetail','BlenderStatusIcon','RunButton','RunLabel','StateDot','StatusText','PercentText','ProgressTrack','ProgressFill')
+$names = @('TitleBar','MinButton','MaxButton','CloseButton','CubeIcon','LinkIcon','FolderIcon','BlenderIcon','DownloadIcon','UrlBox','UrlPlaceholder','PasteButton','FolderBox','BrowseButton','BrowseBlenderButton','BlenderTitle','BlenderDetail','BlenderStatusIcon','RunButton','RunLabel','StateDot','StatusText','PercentText','ProgressTrack','ProgressFill')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 
 $iconRoot = Join-Path $PSScriptRoot 'assets\icons'
@@ -144,24 +145,36 @@ $BlenderStatusIcon.Visibility = 'Collapsed'
 
 $settingsPath = Join-Path $PSScriptRoot 'settings.json'
 $FolderBox.Text = Join-Path $PSScriptRoot 'converted'
+$script:SelectedBlenderPath = ''
 if (Test-Path -LiteralPath $settingsPath) {
-    try { $saved = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json; if ($saved.OutputDirectory) { $FolderBox.Text = [string]$saved.OutputDirectory } } catch { }
+    try {
+        $saved = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+        if ($saved.OutputDirectory) { $FolderBox.Text = [string]$saved.OutputDirectory }
+        if ($saved.BlenderPath) { $script:SelectedBlenderPath = [string]$saved.BlenderPath }
+    } catch { }
 }
 
 $script:ChildProcess = $null
 $script:ChildMode = ''
 $script:ProgressPath = ''
 
-function Start-Worker([string]$Mode, [string]$Url, [string]$Output) {
+function Save-Settings {
+    [IO.File]::WriteAllText($settingsPath, (@{
+        OutputDirectory = $FolderBox.Text.Trim()
+        BlenderPath = $script:SelectedBlenderPath
+    } | ConvertTo-Json), [Text.Encoding]::UTF8)
+}
+
+function Start-Worker([string]$Mode, [string]$Url, [string]$Output, [string]$BlenderPath = '') {
     $token = [guid]::NewGuid().ToString('N')
     $tempRoot = Join-Path ([IO.Path]::GetTempPath()) 'TripoModelDownloader'
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
     $script:ProgressPath = Join-Path $tempRoot "$token.progress"
 
     $body = if ($Mode -eq 'detect') {
-        '& $env:TRIPO_SCRIPT -DetectBlender -NoAutoInstallBlender -ProgressFile $env:TRIPO_PROGRESS; exit $LASTEXITCODE'
+        '& $env:TRIPO_SCRIPT -DetectBlender -NoAutoInstallBlender -BlenderPath $env:TRIPO_BLENDER -ProgressFile $env:TRIPO_PROGRESS; exit $LASTEXITCODE'
     } else {
-        '& $env:TRIPO_SCRIPT -Url $env:TRIPO_URL -OutputDirectory $env:TRIPO_OUT -ProgressFile $env:TRIPO_PROGRESS; exit $LASTEXITCODE'
+        '& $env:TRIPO_SCRIPT -Url $env:TRIPO_URL -OutputDirectory $env:TRIPO_OUT -BlenderPath $env:TRIPO_BLENDER -ProgressFile $env:TRIPO_PROGRESS; exit $LASTEXITCODE'
     }
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
     $psi = New-Object Diagnostics.ProcessStartInfo
@@ -174,6 +187,7 @@ function Start-Worker([string]$Mode, [string]$Url, [string]$Output) {
     $psi.EnvironmentVariables['TRIPO_SCRIPT'] = Join-Path $PSScriptRoot 'TripoGLBToFBX.ps1'
     $psi.EnvironmentVariables['TRIPO_URL'] = $Url
     $psi.EnvironmentVariables['TRIPO_OUT'] = $Output
+    $psi.EnvironmentVariables['TRIPO_BLENDER'] = $BlenderPath
     $psi.EnvironmentVariables['TRIPO_PROGRESS'] = $script:ProgressPath
     $proc = New-Object Diagnostics.Process
     $proc.StartInfo = $psi
@@ -187,6 +201,7 @@ function Set-RunState([bool]$Busy) {
     $UrlBox.IsEnabled = -not $Busy
     $FolderBox.IsEnabled = -not $Busy
     $BrowseButton.IsEnabled = -not $Busy
+    $BrowseBlenderButton.IsEnabled = -not $Busy
     $PasteButton.IsEnabled = -not $Busy
     if ($Busy) { $RunLabel.Text = '正在处理…'; $StateDot.Fill = '#E9A23B' }
     else { $RunLabel.Text = '解析并下载' }
@@ -224,6 +239,35 @@ $BrowseButton.Add_Click({
     $dialog.SelectedPath = $FolderBox.Text
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $FolderBox.Text = $dialog.SelectedPath }
 })
+$BrowseBlenderButton.Add_Click({
+    if ($script:ChildProcess -and -not $script:ChildProcess.HasExited) {
+        $StatusText.Text = '正在检测或处理，请稍候再选择 Blender'
+        return
+    }
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = '选择 Blender.exe'
+    $dialog.Filter = 'Blender 程序 (blender.exe)|blender.exe|所有文件 (*.*)|*.*'
+    $dialog.CheckFileExists = $true
+    $dialog.Multiselect = $false
+    if ($script:SelectedBlenderPath -and (Test-Path -LiteralPath $script:SelectedBlenderPath)) {
+        $dialog.InitialDirectory = Split-Path -Parent $script:SelectedBlenderPath
+        $dialog.FileName = Split-Path -Leaf $script:SelectedBlenderPath
+    }
+    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+    $candidate = [IO.Path]::GetFullPath($dialog.FileName)
+    if ([IO.Path]::GetFileName($candidate) -ine 'blender.exe') {
+        $BlenderTitle.Text = '文件不是 Blender.exe'; $BlenderDetail.Text = '请选择 Blender 安装目录中的 blender.exe'; $BlenderTitle.Foreground = '#B54747'
+        $BlenderStatusIcon.Source = $script:BlenderMissingIcon; $BlenderStatusIcon.Visibility = 'Visible'; return
+    }
+    $script:SelectedBlenderPath = $candidate
+    Save-Settings
+    $BlenderTitle.Text = '正在验证 Blender…'; $BlenderDetail.Text = $candidate; $BlenderDetail.ToolTip = $candidate; $BlenderTitle.Foreground = '#1A2437'
+    $BlenderStatusIcon.Visibility = 'Collapsed'
+    try { Start-Worker 'detect' '' '' $script:SelectedBlenderPath } catch {
+        $BlenderTitle.Text = 'Blender 检测失败'; $BlenderDetail.Text = '无法启动检测进程'; $BlenderDetail.ToolTip = $_.Exception.Message; $BlenderTitle.Foreground = '#B54747'
+        $BlenderStatusIcon.Source = $script:BlenderMissingIcon; $BlenderStatusIcon.Visibility = 'Visible'
+    }
+})
 $RunButton.Add_Click({
     $link = $UrlBox.Text.Trim()
     $uri = $null
@@ -235,10 +279,10 @@ $RunButton.Add_Click({
     if (-not $destination) { $StatusText.Text = '请先选择保存位置'; $StateDot.Fill = '#D9534F'; return }
     try {
         New-Item -ItemType Directory -Force -Path $destination | Out-Null
-        [IO.File]::WriteAllText($settingsPath, (@{ OutputDirectory = $destination } | ConvertTo-Json), [Text.Encoding]::UTF8)
+        Save-Settings
         Set-ProgressValue 0; $StatusText.Text = '正在启动下载…'
         Set-RunState $true
-        Start-Worker 'convert' $link $destination
+        Start-Worker 'convert' $link $destination $script:SelectedBlenderPath
     } catch {
         Set-RunState $false; $StatusText.Text = "无法启动：$($_.Exception.Message)"; $StateDot.Fill = '#D9534F'
     }
@@ -302,7 +346,7 @@ $timer.Add_Tick({
     }
 })
 $timer.Start()
-try { Start-Worker 'detect' '' '' } catch {
+try { Start-Worker 'detect' '' '' $script:SelectedBlenderPath } catch {
     $BlenderTitle.Text = 'Blender 检测失败'; $BlenderDetail.Text = '无法启动检测进程'; $BlenderDetail.ToolTip = $_.Exception.Message
     $BlenderTitle.Foreground = '#B54747'; $BlenderStatusIcon.Source = $script:BlenderMissingIcon; $BlenderStatusIcon.Visibility = 'Visible'
 }

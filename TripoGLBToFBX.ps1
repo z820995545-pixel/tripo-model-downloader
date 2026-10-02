@@ -114,6 +114,20 @@ function Find-Blender([string]$RequestedPath) {
         (Join-Path $PSScriptRoot "..\..\work\blender\blender-5.2.1-windows-x64\blender.exe")
     )
 
+    # 兼容未写死版本号的安装目录，例如 Blender 3.6、4.4、4.5 或自带版本目录。
+    $versionedRoots = @(
+        (Join-Path ${env:ProgramFiles} "Blender Foundation"),
+        (Join-Path ${env:ProgramFiles(x86)} "Blender Foundation"),
+        (Join-Path ${env:LOCALAPPDATA} "Programs\Blender Foundation")
+    )
+    foreach ($root in $versionedRoots) {
+        if (Test-Path -LiteralPath $root) {
+            $candidates += Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName 'blender.exe' }
+            $candidates += Join-Path $root 'blender.exe'
+        }
+    }
+
     $registryCandidates = @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\blender.exe",
         "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\blender.exe"

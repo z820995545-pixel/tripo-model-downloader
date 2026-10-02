@@ -31,6 +31,7 @@ The tool runs on Windows and is launched from the existing `.cmd` entry point. U
 - Accept a Tripo model page URL and offer a paste button.
 - Let users choose the output folder.
 - Detect an existing Blender installation and use it; if none is found, retain the existing automatic portable Blender download behavior.
+- Let users browse for a local `blender.exe` when automatic detection misses a custom or uncommon installation.
 - Show progress and clear completion or failure status.
 - Preserve the existing command-line workflow for direct use.
 - The existing Tripo project API can return model URLs for accessible projects. Private projects or service-side access restrictions may require a clear error state.
