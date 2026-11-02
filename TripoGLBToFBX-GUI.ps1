@@ -21,15 +21,16 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="surface" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"><ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="surface" Property="BorderBrush" Value="#80A8E8"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="surface" Property="Opacity" Value="0.6"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
   </Window.Resources>
-  <Border Background="#F9FBFE" BorderBrush="#D6E0EF" BorderThickness="1" CornerRadius="11">
+  <Border Background="#F9FBFE" BorderBrush="#D6E0EF" BorderThickness="1" CornerRadius="16" ClipToBounds="True">
     <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="2" Opacity="0.15"/></Border.Effect>
     <Grid>
       <Grid.RowDefinitions><RowDefinition Height="50"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-      <Grid x:Name="TitleBar" Grid.Row="0" Background="#F2F6FC">
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button x:Name="MinButton" Style="{StaticResource TitleButton}" Width="54" Height="49" Background="Transparent" BorderThickness="0" ToolTip="最小化"><Path Data="M 9,15 L 25,15" Stroke="#202A3A" StrokeThickness="1.6"/></Button>
-          <Button x:Name="MaxButton" Style="{StaticResource TitleButton}" Width="54" Height="49" Background="Transparent" BorderThickness="0" ToolTip="最大化"><Path Data="M 10,7 L 24,7 L 24,21 L 10,21 Z" Stroke="#202A3A" StrokeThickness="1.5"/></Button>
-          <Button x:Name="CloseButton" Style="{StaticResource TitleButton}" Width="54" Height="49" Background="Transparent" BorderThickness="0" ToolTip="关闭"><Path Data="M 10,7 L 23,21 M 23,7 L 10,21" Stroke="#202A3A" StrokeThickness="1.6"/></Button>
+      <Grid x:Name="TitleBar" Grid.Row="0" Background="Transparent">
+        <Border Background="#F2F6FC" CornerRadius="15,15,0,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,10,0">
+          <Button x:Name="MinButton" Style="{StaticResource TitleButton}" Width="48" Height="38" Background="Transparent" BorderThickness="0" ToolTip="最小化"><Path Data="M 9,15 L 25,15" Stroke="#202A3A" StrokeThickness="1.6"/></Button>
+          <Button x:Name="MaxButton" Style="{StaticResource TitleButton}" Width="48" Height="38" Background="Transparent" BorderThickness="0" ToolTip="最大化"><Path Data="M 10,7 L 24,7 L 24,21 L 10,21 Z" Stroke="#202A3A" StrokeThickness="1.5"/></Button>
+          <Button x:Name="CloseButton" Style="{StaticResource TitleButton}" Width="48" Height="38" Background="Transparent" BorderThickness="0" ToolTip="关闭"><Path Data="M 10,7 L 23,21 M 23,7 L 10,21" Stroke="#202A3A" StrokeThickness="1.6"/></Button>
         </StackPanel>
       </Grid>
       <StackPanel Grid.Row="1" Margin="31,32,31,31">
