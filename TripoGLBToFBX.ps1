@@ -18,6 +18,97 @@ function Set-Progress([int]$Percent, [string]$Message) {
     Write-Host $Message
 }
 
+function Download-WithProgress([string]$Uri, [string]$Destination, [int]$ProgressStart, [int]$ProgressEnd, [string]$Label) {
+    $request = [Net.HttpWebRequest]::Create($Uri)
+    $request.UserAgent = 'Mozilla/5.0'
+    $request.Timeout = 30000
+    $request.ReadWriteTimeout = 30000
+    $response = $null
+    $inputStream = $null
+    $outputStream = $null
+    $tempPath = "$Destination.download"
+    try {
+        Set-Progress $ProgressStart ("正在连接下载服务器：{0}" -f $Label)
+        $response = $request.GetResponse()
+        $totalBytes = $response.ContentLength
+        $inputStream = $response.GetResponseStream()
+        $outputStream = [IO.File]::Open($tempPath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $buffer = New-Object byte[] (1024 * 1024)
+        [long]$receivedBytes = 0
+        $lastUpdate = [DateTime]::MinValue
+        while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $outputStream.Write($buffer, 0, $read)
+            $receivedBytes += $read
+            $now = [DateTime]::UtcNow
+            if (($now - $lastUpdate).TotalMilliseconds -ge 400) {
+                $receivedMb = $receivedBytes / 1MB
+                if ($totalBytes -gt 0) {
+                    $totalMb = $totalBytes / 1MB
+                    $downloadPercent = [Math]::Min(100, [Math]::Floor(($receivedBytes * 100.0) / $totalBytes))
+                    $overallPercent = $ProgressStart + [int][Math]::Floor(($ProgressEnd - $ProgressStart) * $downloadPercent / 100.0)
+                    Set-Progress $overallPercent ("{0}：{1:N1} / {2:N1} MB（{3}%）" -f $Label, $receivedMb, $totalMb, $downloadPercent)
+                } else {
+                    Set-Progress $ProgressStart ("{0}：已下载 {1:N1} MB" -f $Label, $receivedMb)
+                }
+                $lastUpdate = $now
+            }
+        }
+        $outputStream.Flush()
+        $outputStream.Dispose(); $outputStream = $null
+        $inputStream.Dispose(); $inputStream = $null
+        $response.Dispose(); $response = $null
+        if ($totalBytes -gt 0 -and $receivedBytes -ne $totalBytes) {
+            throw ("下载未完成：期望 {0:N1} MB，实际 {1:N1} MB。" -f ($totalBytes / 1MB), ($receivedBytes / 1MB))
+        }
+        if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Force }
+        [IO.File]::Move($tempPath, $Destination)
+        Set-Progress $ProgressEnd ("{0}完成：{1:N1} MB" -f $Label, ($receivedBytes / 1MB))
+    } catch {
+        if ($outputStream) { $outputStream.Dispose() }
+        if ($inputStream) { $inputStream.Dispose() }
+        if ($response) { $response.Dispose() }
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+}
+
+function Expand-ZipWithProgress([string]$ArchivePath, [string]$Destination, [int]$ProgressStart, [int]$ProgressEnd) {
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $totalBytes = [long](($archive.Entries | Measure-Object -Property Length -Sum).Sum)
+        if ($totalBytes -le 0) { $totalBytes = 1 }
+        [long]$extractedBytes = 0
+        $entryNumber = 0
+        foreach ($entry in $archive.Entries) {
+            $entryNumber++
+            $targetPath = [IO.Path]::GetFullPath((Join-Path $Destination ($entry.FullName -replace '/', '\')))
+            $destinationRoot = [IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+            if (-not $targetPath.StartsWith($destinationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Blender 压缩包中包含无效路径：$($entry.FullName)"
+            }
+            if ($entry.FullName.EndsWith('/')) {
+                New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
+                continue
+            }
+            $parent = Split-Path -Parent $targetPath
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+            $entryStream = $entry.Open()
+            $fileStream = [IO.File]::Open($targetPath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try {
+                $buffer = New-Object byte[] (1024 * 1024)
+                while (($read = $entryStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $fileStream.Write($buffer, 0, $read)
+                    $extractedBytes += $read
+                    $overallPercent = $ProgressStart + [int][Math]::Floor(($ProgressEnd - $ProgressStart) * $extractedBytes / $totalBytes)
+                    Set-Progress $overallPercent ("正在解压 Blender：文件 {0}/{1}" -f $entryNumber, $archive.Entries.Count)
+                }
+            } finally { $fileStream.Dispose(); $entryStream.Dispose() }
+        }
+    } finally { $archive.Dispose() }
+    Set-Progress $ProgressEnd 'Blender 解压完成，准备转换…'
+}
+
 trap {
     if ($ProgressFile) {
         try {
@@ -159,13 +250,11 @@ function Find-Blender([string]$RequestedPath) {
     New-Item -ItemType Directory -Force -Path $cache | Out-Null
 
     if (-not (Test-Path -LiteralPath $zip)) {
-        Write-Host "首次运行：下载 Blender 便携版（约 405 MB）..."
-        Invoke-WebRequest -Uri "https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip" `
-            -Headers @{ "User-Agent" = "Mozilla/5.0" } -OutFile $zip
+        Download-WithProgress "https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip" $zip 58 78 '正在下载 Blender 便携版'
     }
     if (-not (Test-Path -LiteralPath $root)) {
-        Write-Host "解压 Blender..."
-        Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+        Set-Progress 79 '正在解压 Blender…'
+        Expand-ZipWithProgress $zip $root 79 89
     }
 
     $portable = Get-ChildItem -LiteralPath $root -Filter "blender.exe" -Recurse | Select-Object -First 1
@@ -207,10 +296,20 @@ $blender = Find-Blender $BlenderPath
 $converter = Join-Path $PSScriptRoot "blender_convert.py"
 if (-not (Test-Path -LiteralPath $converter)) { throw "缺少 Blender 转换脚本：$converter" }
 
-Set-Progress 65 "正在转换为 FBX..."
+Set-Progress 90 "正在转换为 FBX..."
 $blenderArgs = @("--background", "--python", $converter, "--", $glbPath, $fbxPath)
-& $blender @blenderArgs
-if ($LASTEXITCODE -ne 0) { throw "Blender 转换失败，退出码：$LASTEXITCODE" }
+$blenderLog = Join-Path $OutputDirectory ("tripo_{0}_blender.log" -f $projectId)
+if (Test-Path -LiteralPath $blenderLog) { Remove-Item -LiteralPath $blenderLog -Force }
+& $blender @blenderArgs 2>&1 | Set-Content -LiteralPath $blenderLog -Encoding UTF8
+$blenderExitCode = $LASTEXITCODE
+if ($blenderExitCode -ne 0) {
+    $logTail = (Get-Content -LiteralPath $blenderLog -Tail 24 -ErrorAction SilentlyContinue) -join ' '
+    throw "Blender 转换失败，退出码：$blenderExitCode。日志：$blenderLog。$logTail"
+}
+if (-not (Test-Path -LiteralPath $fbxPath -PathType Leaf)) {
+    $logTail = (Get-Content -LiteralPath $blenderLog -Tail 24 -ErrorAction SilentlyContinue) -join ' '
+    throw "Blender 未生成 FBX 文件。请查看日志：$blenderLog。$logTail"
+}
 
 $result = Get-Item -LiteralPath $fbxPath
 Set-Progress 100 ("转换完成：{0} ({1:N1} MB)" -f $result.FullName, ($result.Length / 1MB))

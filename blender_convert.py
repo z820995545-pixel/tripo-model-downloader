@@ -11,6 +11,10 @@ def main():
         raise SystemExit("Usage: blender --background --python blender_convert.py -- input.glb output.fbx")
 
     input_path, output_path = args[0], args[1]
+    if not hasattr(bpy.ops.import_scene, "gltf"):
+        raise RuntimeError("This Blender installation does not have the glTF importer enabled.")
+    if not hasattr(bpy.ops.export_scene, "fbx"):
+        raise RuntimeError("This Blender installation does not have the FBX exporter enabled.")
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=input_path)
 
